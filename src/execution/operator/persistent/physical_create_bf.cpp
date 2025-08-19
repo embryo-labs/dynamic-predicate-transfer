@@ -228,12 +228,12 @@ bool PhysicalCreateBF::GiveUpBFCreation(const DataChunk &chunk, OperatorSinkInpu
 			
 			// TODO: Currently, the number of threads affect the accuracy of progress percent.
 			if (gstate.num_threads > 8) {
-				if (selectivity > 0 || (row_length > 40 && selectivity > 0)) {
+				if (selectivity > 0.35 || (row_length > 40 && selectivity > 0.2)) {
 					is_successful = false;
 					return true;
 				}
 			} else {
-				if (progress_percent <= 0.35 && (selectivity > 0 || (row_length > 40 && selectivity > 0))) {
+				if (progress_percent < 0.65 && (selectivity > 0.35 || (row_length > 40 && selectivity > 0.2))) {
 					is_successful = false;
 					return true;
 				}
