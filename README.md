@@ -6,6 +6,8 @@ This repository contains the implementation of **Dynamic Predicate Transfer (RPT
 - A **cascade filter mechanism** that combines min-max and Bloom filters for hierarchical filtering efficiency.
 - A **dynamic pipeline strategy** that adapts filter creation and transfer based on runtime selectivity.
 
+If you want the **original RPT** on **DuckDB 1.3.0**, please apply the following patch: `APPLY_ME_TO_GET_ORIGINAL_RPT.patch`.
+
 ## Build
 
 You can build this repository in the same way as the original DuckDB. A `Makefile` wraps the build process. For available build targets and configuration flags, see the [DuckDB Build Configuration Guide](https://duckdb.org/docs/stable/dev/building/build_configuration.html).

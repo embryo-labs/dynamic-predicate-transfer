@@ -1,0 +1,24 @@
+Subject: [PATCH] Disable 1. Asymmetric Transfer Plan, 2. Cascade Filter, and 3. Dynamic Pipeline, then we have the original RPT.
+---
+Index: src/optimizer/predicate_transfer/transfer_graph_manager.cpp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/optimizer/predicate_transfer/transfer_graph_manager.cpp b/src/optimizer/predicate_transfer/transfer_graph_manager.cpp
+--- a/src/optimizer/predicate_transfer/transfer_graph_manager.cpp	(revision 7b3cdf94ab88e01bd03c1190c93c910651063686)
++++ b/src/optimizer/predicate_transfer/transfer_graph_manager.cpp	(date 1757558766802)
+@@ -61,10 +61,11 @@
+ 	}
+ 
+ 	// 3. Unfiltered Table only receives Bloom filters, they will not generate Bloom filters.
+-	SkipUnfilteredTable(joins);
++	// SkipUnfilteredTable(joins);
+ 
+ 	// 4. Create the transfer graph
+-	CreateTransferPlanUpdated();
++	// CreateTransferPlanUpdated();
++	CreateOriginTransferPlan();
+ 
+ 	return true;
+ }
