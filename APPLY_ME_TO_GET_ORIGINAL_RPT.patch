@@ -1,14 +1,8 @@
-Subject: [PATCH] Provide a code patch to restore the original RPT.
----
-Index: src/execution/operator/persistent/physical_create_bf.cpp
-IDEA additional info:
-Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
-<+>UTF-8
-===================================================================
 diff --git a/src/execution/operator/persistent/physical_create_bf.cpp b/src/execution/operator/persistent/physical_create_bf.cpp
---- a/src/execution/operator/persistent/physical_create_bf.cpp	(revision bc06684670397d21a01122e132a5089bdafcc60f)
-+++ b/src/execution/operator/persistent/physical_create_bf.cpp	(date 1757560836350)
-@@ -227,17 +227,17 @@
+index 4b3362206a..f1e8d15d58 100644
+--- a/src/execution/operator/persistent/physical_create_bf.cpp
++++ b/src/execution/operator/persistent/physical_create_bf.cpp
+@@ -227,17 +227,17 @@ bool PhysicalCreateBF::GiveUpBFCreation(const DataChunk &chunk, OperatorSinkInpu
  			double row_length = static_cast<double>(gstate.total_row_size) / input_rows;
  			
  			// TODO: Currently, the number of threads affect the accuracy of progress percent.
@@ -37,15 +31,11 @@ diff --git a/src/execution/operator/persistent/physical_create_bf.cpp b/src/exec
  
  			// 2. Estimate the lower bound of required memory, which is used to materialize this table. If it is very
  			// large, give up creating BF.
-Index: src/execution/transfer_bf_linker.cpp
-IDEA additional info:
-Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
-<+>UTF-8
-===================================================================
 diff --git a/src/execution/transfer_bf_linker.cpp b/src/execution/transfer_bf_linker.cpp
---- a/src/execution/transfer_bf_linker.cpp	(revision bc06684670397d21a01122e132a5089bdafcc60f)
-+++ b/src/execution/transfer_bf_linker.cpp	(date 1757560836354)
-@@ -19,11 +19,11 @@
+index 89125e180f..979a0a32bf 100644
+--- a/src/execution/transfer_bf_linker.cpp
++++ b/src/execution/transfer_bf_linker.cpp
+@@ -19,11 +19,11 @@ void TransferBFLinker::LinkBFOperators(LogicalOperator &op) {
  	state = State::CLEAN_USELESS_OPERATORS;
  	VisitOperator(op);
  
@@ -62,15 +52,11 @@ diff --git a/src/execution/transfer_bf_linker.cpp b/src/execution/transfer_bf_li
  }
  
  void TransferBFLinker::VisitOperator(LogicalOperator &op) {
-Index: src/optimizer/predicate_transfer/transfer_graph_manager.cpp
-IDEA additional info:
-Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
-<+>UTF-8
-===================================================================
 diff --git a/src/optimizer/predicate_transfer/transfer_graph_manager.cpp b/src/optimizer/predicate_transfer/transfer_graph_manager.cpp
---- a/src/optimizer/predicate_transfer/transfer_graph_manager.cpp	(revision bc06684670397d21a01122e132a5089bdafcc60f)
-+++ b/src/optimizer/predicate_transfer/transfer_graph_manager.cpp	(date 1757560836358)
-@@ -61,10 +61,11 @@
+index efd9030caa..9ba0108e39 100644
+--- a/src/optimizer/predicate_transfer/transfer_graph_manager.cpp
++++ b/src/optimizer/predicate_transfer/transfer_graph_manager.cpp
+@@ -61,10 +61,11 @@ bool TransferGraphManager::Build(LogicalOperator &plan) {
  	}
  
  	// 3. Unfiltered Table only receives Bloom filters, they will not generate Bloom filters.
