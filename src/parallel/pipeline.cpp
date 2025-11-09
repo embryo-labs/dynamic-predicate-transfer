@@ -345,6 +345,7 @@ void Pipeline::ModifyCreateBFPipeline() {
 		switch (op->type) {
 		case PhysicalOperatorType::USE_BF:
 		case PhysicalOperatorType::FILTER:
+		case PhysicalOperatorType::HASH_JOIN:
 		case PhysicalOperatorType::PROJECTION: {
 			new_operators.push_back(*op);
 			break;
