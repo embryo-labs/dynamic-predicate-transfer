@@ -1062,6 +1062,9 @@ public:
 			return 0;
 		}
 		idx_t thread_num = count / ((idx_t)STANDARD_VECTOR_SIZE * parallel_scan_chunk_count);
+		if (gstate.num_threads >= 8) {
+			thread_num = std::max(thread_num, idx_t(8));
+		}
 		return thread_num;
 	}
 
@@ -1150,7 +1153,7 @@ unique_ptr<LocalSourceState> PhysicalHashJoin::GetLocalSourceState(ExecutionCont
 HashJoinGlobalSourceState::HashJoinGlobalSourceState(const PhysicalHashJoin &op, const ClientContext &context)
     : op(op), global_stage(HashJoinSourceStage::INIT), build_chunk_count(0), build_chunk_done(0), probe_chunk_count(0),
       probe_chunk_done(0), probe_count(op.children[0].get().estimated_cardinality),
-      parallel_scan_chunk_count(context.config.verify_parallelism ? 1 : 1) {
+      parallel_scan_chunk_count(context.config.verify_parallelism ? 1 : 120) {
 }
 
 void HashJoinGlobalSourceState::Initialize(HashJoinGlobalSinkState &sink) {
