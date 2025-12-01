@@ -24,6 +24,10 @@
 #endif
 #endif
 
+#ifndef USE_LOCK_BF
+#define USE_LOCK_BF 0
+#endif
+
 namespace duckdb {
 
 static constexpr const uint32_t MAX_NUM_SECTORS = (1ULL << 26);
@@ -49,7 +53,7 @@ public:
 	uint64_t Fingerprint() const {
 		// FNV-1a 64-bit hash
 		constexpr uint64_t kOffset = 14695981039346656037ull;
-		constexpr uint64_t kPrime  = 1099511628211ull;
+		constexpr uint64_t kPrime = 1099511628211ull;
 
 		uint64_t h = kOffset;
 
@@ -105,14 +109,17 @@ private:
 		uint32_t sector2 = GetSector2(key_hi, sector1);
 		uint32_t mask2 = GetMask2(key_hi);
 
-		// Perform atomic OR operation on the bf array elements using std::atomic
-		// std::atomic<uint32_t>& atomic_bf1 = *reinterpret_cast<std::atomic<uint32_t>*>(&bf[sector1]);
-		// std::atomic<uint32_t>& atomic_bf2 = *reinterpret_cast<std::atomic<uint32_t>*>(&bf[sector2]);
-
-		// atomic_bf1.fetch_or(mask1, std::memory_order_relaxed);
-		// atomic_bf2.fetch_or(mask2, std::memory_order_relaxed);
+#if USE_LOCK_BF
 		bf[sector1] |= mask1;
 		bf[sector2] |= mask2;
+#else
+		// Perform atomic OR operation on the bf array elements using std::atomic
+		std::atomic<uint32_t> &atomic_bf1 = *reinterpret_cast<std::atomic<uint32_t> *>(&bf[sector1]);
+		std::atomic<uint32_t> &atomic_bf2 = *reinterpret_cast<std::atomic<uint32_t> *>(&bf[sector2]);
+
+		atomic_bf1.fetch_or(mask1, std::memory_order_relaxed);
+		atomic_bf2.fetch_or(mask2, std::memory_order_relaxed);
+#endif
 	}
 	inline bool LookupOne(uint32_t key_lo, uint32_t key_hi, const uint32_t *BF_RESTRICT bf) const {
 		uint32_t sector1 = GetSector1(key_lo, key_hi);
@@ -168,19 +175,21 @@ private:
 				mask2[j] = GetMask2(key_hi);
 			}
 
-			// In some cases, atomic operation leads to cache thrashing, making it slower than the locker.
-			// for (int j = 0; j < SIMD_BATCH_SIZE; j++) {
-			// 	// Atomic OR operation
-			// 	std::atomic<uint32_t>& atomic_bf1 = *reinterpret_cast<std::atomic<uint32_t>*>(&bf[block1[j]]);
-			// 	std::atomic<uint32_t>& atomic_bf2 = *reinterpret_cast<std::atomic<uint32_t>*>(&bf[block2[j]]);
-			//
-			// 	atomic_bf1.fetch_or(mask1[j], std::memory_order_relaxed);
-			// 	atomic_bf2.fetch_or(mask2[j], std::memory_order_relaxed);
-			// }
+#if USE_LOCK_BF
 			for (int j = 0; j < SIMD_BATCH_SIZE; j++) {
 				bf[block1[j]] |= mask1[j];
 				bf[block2[j]] |= mask2[j];
 			}
+#else
+			for (int j = 0; j < SIMD_BATCH_SIZE; j++) {
+				// Atomic OR operation
+				std::atomic<uint32_t> &atomic_bf1 = *reinterpret_cast<std::atomic<uint32_t> *>(&bf[block1[j]]);
+				std::atomic<uint32_t> &atomic_bf2 = *reinterpret_cast<std::atomic<uint32_t> *>(&bf[block2[j]]);
+
+				atomic_bf1.fetch_or(mask1[j], std::memory_order_relaxed);
+				atomic_bf2.fetch_or(mask2[j], std::memory_order_relaxed);
+			}
+#endif
 		}
 
 		// unaligned tail
