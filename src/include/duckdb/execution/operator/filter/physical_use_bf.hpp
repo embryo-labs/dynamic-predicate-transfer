@@ -14,10 +14,11 @@ namespace duckdb {
 class PhysicalUseBF : public CachingPhysicalOperator {
 public:
 	static constexpr const PhysicalOperatorType TYPE = PhysicalOperatorType::USE_BF;
+	static constexpr const idx_t COMPACTION_THRESHOLD = 256;
 
 public:
 	PhysicalUseBF(vector<LogicalType> types, const shared_ptr<FilterPlan> &filter_plan, unique_ptr<BloomFilterUsage> bf,
-	              PhysicalCreateBF *related_create_bfs, idx_t estimated_cardinality);
+	              PhysicalCreateBF *related_create_bfs, idx_t estimated_cardinality, bool below_join);
 
 	shared_ptr<FilterPlan> filter_plan;
 	PhysicalCreateBF *related_creator = nullptr;

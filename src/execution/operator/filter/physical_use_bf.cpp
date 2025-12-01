@@ -6,9 +6,12 @@
 namespace duckdb {
 PhysicalUseBF::PhysicalUseBF(vector<LogicalType> types, const shared_ptr<FilterPlan> &filter_plan,
                              unique_ptr<BloomFilterUsage> bf, PhysicalCreateBF *related_create_bfs,
-                             idx_t estimated_cardinality)
+                             idx_t estimated_cardinality, bool below_join)
     : CachingPhysicalOperator(PhysicalOperatorType::USE_BF, std::move(types), estimated_cardinality),
       filter_plan(filter_plan), related_creator(related_create_bfs), bf_to_use(std::move(bf)) {
+	if (below_join) {
+		cache_threshold = COMPACTION_THRESHOLD;
+	}
 }
 
 class UseBFState : public CachingOperatorState {

@@ -257,10 +257,11 @@ public:
 //! inherit their state class from the CachingOperatorState.
 class CachingPhysicalOperator : public PhysicalOperator {
 public:
-	static constexpr const idx_t CACHE_THRESHOLD = 64;
-	CachingPhysicalOperator(PhysicalOperatorType type, vector<LogicalType> types, idx_t estimated_cardinality);
+	CachingPhysicalOperator(PhysicalOperatorType type, vector<LogicalType> types, idx_t estimated_cardinality,
+	                        idx_t cache_threshold = 64);
 
 	bool caching_supported;
+	idx_t cache_threshold;
 
 public:
 	//! This Execute will prevent small chunks from entering the pipeline, buffering them until a bigger chunk is

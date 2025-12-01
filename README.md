@@ -2,9 +2,9 @@
 
 This repository contains the implementation of **Dynamic Predicate Transfer (RPT+)**, built on top of [DuckDB v1.3.0](https://github.com/duckdb/duckdb/tree/v1.3-ossivalis). It provides a customized version of DuckDB. Compared to the original Robust Predicate Transfer (RPT), RPT+ introduces the following key improvements:
 
-- An **asymmetric filter transfer plan** to reduce redundant Bloom Filter (BF) construction.
-- A **cascade filter mechanism** that combines min-max and Bloom filters for hierarchical filtering efficiency.
-- A **dynamic pipeline strategy** that adapts filter creation and transfer based on runtime selectivity.
+- **Asymmetric Transfer Plan** — replaces the LargestRoot algorithm for generating transfer plans.
+- **Cascade Filter** — combine min–max filters and Bloom filters to improve pruning effectiveness.
+- **Dynamic Pipeline strategy** — adapts filter creation and transfer decisions at runtime.
 
 If you want the **original RPT** on **DuckDB 1.3.0**, please apply the following patch: `APPLY_ME_TO_GET_ORIGINAL_RPT.patch`.
 
@@ -27,13 +27,24 @@ BUILD_BENCHMARK=1 make # Build with benchmark support
 
 ## Benchmark
 
-### Join Order Benchmark (JOB)
+DuckDB includes a built-in implementation of benchmarks. You can build and run them with:
 
-DuckDB includes a built-in implementation of the Join Order Benchmark. You can build and run it with:
-
+### TPC-H (SF=100)
 ```bash
 BUILD_BENCHMARK=1 BUILD_TPCH=1 BUILD_TPCDS=1 BUILD_HTTPFS=1 CORE_EXTENSIONS='tpch' make
-build/release/benchmark/benchmark_runner "benchmark/imdb/.*.benchmark" --threads=1
+build/release/benchmark/benchmark_runner "benchmark/large/tpch-sf100/.*.benchmark" --threads=8
+```
+
+### Join Order Benchmark (JOB)
+```bash
+BUILD_BENCHMARK=1 BUILD_TPCH=1 BUILD_TPCDS=1 BUILD_HTTPFS=1 CORE_EXTENSIONS='tpch' make
+build/release/benchmark/benchmark_runner "benchmark/imdb/.*.benchmark" --threads=8
+```
+
+### Appian Benchmark
+```bash
+BUILD_BENCHMARK=1 BUILD_TPCH=1 BUILD_TPCDS=1 BUILD_HTTPFS=1 CORE_EXTENSIONS='tpch' make
+build/release/benchmark/benchmark_runner "benchmark/appian_benchmarks/.*.benchmark" --threads=8
 ```
 
 ### SQLStorm
@@ -44,11 +55,17 @@ To run the SQLStorm benchmark:
 2. Download the [StackOverflow Math dataset](https://db.in.tum.de/~schmidt/data/stackoverflow_math.tar.gz) and load it according to SQLStorm’s setup instructions.
 3. The list of queries that are executable with DuckDB is available [here](https://github.com/SQL-Storm/SQLStorm/blob/master/v1.0/stackoverflow/valid_queries.csv).
 
+To build a duckdb executable for SQLStorm,
 
-> Below is the original DuckDB's README.
+```bash
+BUILD_BENCHMARK=1 BUILD_TPCH=1 BUILD_TPCDS=1 BUILD_HTTPFS=1 CXXFLAGS="-DUSE_LOCK_BF=1 -DUSE_SQLSTORM_DP_CONDITION=1" make -j
+```
 
+The executable of duckdb is placed at `./build/release/duckdb`.
 
 ---
+> **Note:**  
+> The following section is the *unmodified original README* of DuckDB.
 
 <div align="center">
   <picture>

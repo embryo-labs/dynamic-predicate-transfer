@@ -269,7 +269,7 @@ void TransferGraphManager::ClassifyTables() {
 		auto &edges = neighbor_matrix[id];
 		auto &join_keys = table_join_keys[id];
 
-		// Check intermediate table, which belongs to more than 2 groups
+		// 1. Find belong groups
 		unordered_set<JoinKeyTableGroup *> belong_groups;
 		for (auto &sub_pair : edges) {
 			auto &edge = sub_pair.second;
@@ -283,156 +283,231 @@ void TransferGraphManager::ClassifyTables() {
 				join_keys.insert(edge->right_binding);
 			}
 		}
+
+		// 2. Check Filtered Table or very small table
+		if (table->type == LogicalOperatorType::LOGICAL_FILTER) {
+			filtered_table.insert(id);
+			continue;
+		} else if (table->type == LogicalOperatorType::LOGICAL_GET) {
+			auto &get = table->Cast<LogicalGet>();
+
+			if (!get.table_filters.filters.empty()) {
+				filtered_table.insert(id);
+				continue;
+			}
+		}
+
+		// 3. Check Intermediate Table
 		if (belong_groups.size() > 1) {
 			intermediate_table.insert(id);
 			continue;
 		}
 
-		// Check unfiltered table
-		if (table->type == LogicalOperatorType::LOGICAL_GET) {
-			auto &get = table->Cast<LogicalGet>();
-			if (get.table_filters.filters.empty()) {
-				unfiltered_table.insert(id);
-				continue;
-			}
-		}
-
-		// Last, it is a filtered table
-		filtered_table.insert(id);
+		// 4. Last, it is an unfiltered table
+		unfiltered_table.insert(id);
 	}
 }
 
 void TransferGraphManager::SkipUnfilteredTable(const vector<reference<LogicalOperator>> &joins) {
-	// TODO: currently, we do not support skip unfiltered tables participating in outer join.
-	for (auto& op: joins) {
-		auto &join = op.get().Cast<LogicalComparisonJoin>();
-		if (join.join_type != JoinType::INNER) {
-			return;
+	// Helper: check whether data can flow from one table to another
+	auto can_flow = [&](const shared_ptr<EdgeInfo> &e, idx_t from_tbl, idx_t to_tbl) -> bool {
+		if (e->left_binding.table_index == from_tbl && e->right_binding.table_index == to_tbl) {
+			return !e->protect_right; // Left → Right allowed if not protected
 		}
-	}
+		if (e->right_binding.table_index == from_tbl && e->left_binding.table_index == to_tbl) {
+			return !e->protect_left; // Right → Left allowed if not protected
+		}
+		return false;
+	};
 
-	bool changed = false;
+	// Helper: get the column index corresponding to table `t` in edge `e`
+	auto col_at = [&](const shared_ptr<EdgeInfo> &e, idx_t t) -> idx_t {
+		return (e->left_binding.table_index == t) ? e->left_binding.column_index : e->right_binding.column_index;
+	};
+
+	// Helper: insert new edge into neighbor_matrix, merging if already exists
+	auto upsert_edge = [&](const shared_ptr<EdgeInfo> &ne) {
+		idx_t i = ne->left_binding.table_index;
+		idx_t j = ne->right_binding.table_index;
+		auto &ij = neighbor_matrix[i][j];
+		auto &ji = neighbor_matrix[j][i];
+		bool exists = false;
+
+		if (ij) {
+			bool same = (ij->left_binding == ne->left_binding && ij->right_binding == ne->right_binding);
+			bool rev = (ij->left_binding == ne->right_binding && ij->right_binding == ne->left_binding);
+			if (same) {
+				ij->protect_left &= ne->protect_left;
+				ij->protect_right &= ne->protect_right;
+				exists = true;
+			} else if (rev) {
+				ij->protect_left &= ne->protect_right;
+				ij->protect_right &= ne->protect_left;
+				exists = true;
+			}
+		}
+		if (!exists) {
+			ij = ne;
+			ji = ne;
+		}
+	};
+
+	// 1) Iteratively skip unfiltered tables until no new edges are added.
+	bool changed;
 	do {
 		changed = false;
-		for (auto &table_idx : unfiltered_table) {
-			// 2.1 collect received bfs
-			unordered_map<idx_t, vector<shared_ptr<EdgeInfo>>> received_bfs;
-			auto &edges = neighbor_matrix[table_idx];
 
-			for (auto &pair : edges) {
-				auto &e = pair.second;
+		for (auto t : unfiltered_table) {
+			auto &adj = neighbor_matrix[t];
 
-				if (e->left_binding.table_index == table_idx && !e->protect_left) {
-					auto &bfs = received_bfs[e->left_binding.column_index];
-					bfs.push_back(e);
-				} else if (e->right_binding.table_index == table_idx && !e->protect_right) {
-					auto &bfs = received_bfs[e->right_binding.column_index];
-					bfs.push_back(e);
-				}
-			}
+			// ---- Step 1: collect all incoming edges from carrier tables → t ----
+			unordered_map<idx_t, vector<shared_ptr<EdgeInfo>>> incoming_by_col;
+			for (const auto &p : adj) {
+				const auto &nbr = p.first;
+				const auto &e = p.second;
 
-			// 2.2 remove BFs creation from this table
-			for (auto &pair : edges) {
-				auto &edge = pair.second;
-
-				bool is_left = (edge->left_binding.table_index == table_idx && !edge->protect_right);
-				bool is_right = (edge->right_binding.table_index == table_idx && !edge->protect_left);
-				if (!is_left && !is_right) {
+				if (!e) {
 					continue;
 				}
-
-				idx_t col_idx = is_left ? edge->left_binding.column_index : edge->right_binding.column_index;
-				auto &bfs = received_bfs[col_idx];
-
-				// 2.2.1 add new links
-				for (auto &bf_edge : bfs) {
-					// the same edge
-					if (bf_edge->left_binding == edge->left_binding && bf_edge->right_binding == edge->right_binding) {
-						continue;
-					}
-
-					bool bf_left = (bf_edge->left_binding.table_index == table_idx && !bf_edge->protect_left);
-					bool bf_right = (bf_edge->right_binding.table_index == table_idx && !bf_edge->protect_right);
-					if (!bf_left && !bf_right) {
-						continue;
-					}
-
-					shared_ptr<EdgeInfo> concat_edge = nullptr;
-					if (is_left && bf_left) {
-						concat_edge =
-						    make_shared_ptr<EdgeInfo>(edge->return_type, bf_edge->right_table, bf_edge->right_binding,
-						                              edge->right_table, edge->right_binding);
-						concat_edge->protect_left = true;
-					} else if (is_left && bf_right) {
-						concat_edge =
-						    make_shared_ptr<EdgeInfo>(edge->return_type, bf_edge->left_table, bf_edge->left_binding,
-						                              edge->right_table, edge->right_binding);
-						concat_edge->protect_left = true;
-					} else if (is_right && bf_left) {
-						concat_edge = make_shared_ptr<EdgeInfo>(edge->return_type, edge->left_table, edge->left_binding,
-						                                        bf_edge->right_table, bf_edge->right_binding);
-						concat_edge->protect_right = true;
-					} else if (is_right && bf_right) {
-						concat_edge = make_shared_ptr<EdgeInfo>(edge->return_type, edge->left_table, edge->left_binding,
-						                                        bf_edge->left_table, bf_edge->left_binding);
-						concat_edge->protect_right = true;
-					}
-
-					if (concat_edge) {
-						idx_t i = concat_edge->left_binding.table_index;
-						idx_t j = concat_edge->right_binding.table_index;
-						auto &edge_ij = neighbor_matrix[i][j];
-						auto &edge_ji = neighbor_matrix[j][i];
-
-						bool exists = false;
-						if (edge_ij != nullptr) {
-							bool same_direction = edge_ij->left_binding == concat_edge->left_binding &&
-							                      edge_ij->right_binding == concat_edge->right_binding;
-							bool reverse_direction = edge_ij->left_binding == concat_edge->right_binding &&
-							                         edge_ij->right_binding == concat_edge->left_binding;
-
-							if (same_direction || reverse_direction) {
-								if (same_direction) {
-									edge_ij->protect_left &= concat_edge->protect_left;
-									edge_ij->protect_right &= concat_edge->protect_right;
-								} else { // reverse_direction
-									edge_ij->protect_left &= concat_edge->protect_right;
-									edge_ij->protect_right &= concat_edge->protect_left;
-								}
-								exists = true;
-							}
-						}
-
-						if (!exists) {
-							edge_ij = concat_edge;
-							edge_ji = concat_edge;
-						}
-					}
+				if (can_flow(e, nbr, t)) {
+					incoming_by_col[col_at(e, t)].push_back(e);
 				}
-
-				// 2.2.2 disable current link
-				if (is_left) {
-					edge->protect_right = true;
-				} else {
-					edge->protect_left = true;
-				}
-
-				changed = true;
 			}
 
-			// 2.3. Remove invalid links
-			for (auto it = edges.begin(); it != edges.end();) {
-				auto &edge = it->second;
+			// ---- Step 2: collect all outgoing edges t → neighbor ----
+			vector<shared_ptr<EdgeInfo>> outgoing;
+			for (const auto &p : adj) {
+				const auto &nbr = p.first;
+				const auto &e = p.second;
 
-				// If the condition is met, erase the item from the unordered_map
-				if (edge->protect_left && edge->protect_right) {
-					it = edges.erase(it);
+				if (!e) {
+					continue;
+				}
+				if (can_flow(e, t, nbr)) {
+					outgoing.push_back(e);
+				}
+			}
+
+			// ---- Step 3: bypass t ----
+			// For every (carrier → t) and (t → dst) pair with the same join column,
+			// create a direct edge (carrier → dst).
+			for (auto &in_group : incoming_by_col) {
+				for (auto &out_e : outgoing) {
+					if (col_at(out_e, t) != in_group.first) {
+						continue; // must be same join key
+					}
+
+					auto &in_e = in_group.second[0]; // representative incoming edge
+
+					shared_ptr<EdgeInfo> ne;
+					if (out_e->left_binding.table_index == t) {
+						// t is left side of out_e: disable Left→Right direction later
+						if (in_e->left_binding.table_index == t) {
+							// src is Right side of in_e
+							ne = make_shared_ptr<EdgeInfo>(out_e->return_type, in_e->right_table, in_e->right_binding,
+							                               out_e->right_table, out_e->right_binding);
+						} else {
+							// src is Left side of in_e
+							ne = make_shared_ptr<EdgeInfo>(out_e->return_type, in_e->left_table, in_e->left_binding,
+							                               out_e->right_table, out_e->right_binding);
+						}
+						ne->protect_left = true; // disable reverse flow (R → L)
+					} else {
+						// t is right side of out_e
+						if (in_e->left_binding.table_index == t) {
+							// src is Right side of in_e
+							ne = make_shared_ptr<EdgeInfo>(out_e->return_type, in_e->right_table, in_e->right_binding,
+							                               out_e->left_table, out_e->left_binding);
+						} else {
+							// src is Left side of in_e
+							ne = make_shared_ptr<EdgeInfo>(out_e->return_type, in_e->left_table, in_e->left_binding,
+							                               out_e->left_table, out_e->left_binding);
+						}
+						ne->protect_right = true; // disable reverse flow (L → R)
+					}
+
+					upsert_edge(ne);
+					changed = true;
+				}
+			}
+
+			// ---- Step 4: disable all outgoing edges from this unfiltered table ----
+			for (auto &e : outgoing) {
+				if (e->left_binding.table_index == t) {
+					if (!e->protect_right) {
+						e->protect_right = true; // block Left→Right
+						changed = true;
+					}
+				} else {
+					if (!e->protect_left) {
+						e->protect_left = true; // block Right→Left
+						changed = true;
+					}
+				}
+			}
+
+			// ---- Step 5: remove fully blocked edges (no direction left) ----
+			for (auto it = adj.begin(); it != adj.end();) {
+				auto &e = it->second;
+				if (e && e->protect_left && e->protect_right) {
+					it = adj.erase(it);
+					changed = true;
 				} else {
 					++it;
 				}
 			}
 		}
 	} while (changed);
+
+	// 2) For each intermediate table, if it has no filter and any in-edge, it should not have out-edge
+	for (auto t : intermediate_table) {
+		auto &adj = neighbor_matrix[t];
+
+		// ---- collect all incoming edges from carrier tables → t ----
+		unordered_map<idx_t, vector<shared_ptr<EdgeInfo>>> incoming_by_col;
+		for (const auto &p : adj) {
+			const auto &nbr = p.first;
+			const auto &e = p.second;
+
+			if (!e) {
+				continue;
+			}
+			if (can_flow(e, nbr, t)) {
+				incoming_by_col[col_at(e, t)].push_back(e);
+			}
+		}
+
+		if (incoming_by_col.empty()) {
+			for (const auto &p : adj) {
+				const auto &nbr = p.first;
+				const auto &e = p.second;
+
+				if (!e) {
+					continue;
+				}
+				if (can_flow(e, t, nbr)) {
+					if (e->left_binding.table_index == t) {
+						if (!e->protect_right) {
+							e->protect_right = true; // block Left→Right
+						}
+					} else {
+						if (!e->protect_left) {
+							e->protect_left = true; // block Right→Left
+						}
+					}
+				}
+			}
+
+			for (auto it = adj.begin(); it != adj.end();) {
+				auto &e = it->second;
+				if (e && e->protect_left && e->protect_right) {
+					it = adj.erase(it);
+				} else {
+					++it;
+				}
+			}
+		}
+	}
 }
 
 void TransferGraphManager::LargestRoot(vector<LogicalOperator *> &sorted_nodes) {
@@ -494,7 +569,7 @@ void TransferGraphManager::LargestRootUpdated(vector<LogicalOperator *> &sorted_
 		}
 	}
 
-	// If we cannot find it, use the largest table as the root
+	// If we cannot find it, all tables have no filter
 	if (root == std::numeric_limits<idx_t>::max()) {
 		auto &node = sorted_nodes.back();
 		root = table_operator_manager.GetScalarTableIndex(node);

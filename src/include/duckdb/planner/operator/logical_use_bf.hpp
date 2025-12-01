@@ -16,6 +16,9 @@ public:
 	shared_ptr<FilterPlan> filter_plan;
 	LogicalCreateBF *related_create_bf = nullptr;
 
+	// I find that it is beneficial to compact outputted chunks before joins.
+	bool below_join = false;
+
 public:
 	InsertionOrderPreservingMap<string> ParamsToString() const override;
 

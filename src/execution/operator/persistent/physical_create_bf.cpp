@@ -15,6 +15,10 @@
 
 namespace duckdb {
 
+#ifndef USE_SQLSTORM_DP_CONDITION
+#define USE_SQLSTORM_DP_CONDITION 0
+#endif
+
 PhysicalCreateBF::PhysicalCreateBF(vector<LogicalType> types, const vector<shared_ptr<FilterPlan>> &filter_plans,
                                    vector<shared_ptr<DynamicTableFilterSet>> dynamic_filter_sets,
                                    vector<vector<ColumnBinding>> &dynamic_filter_cols, idx_t estimated_cardinality,
@@ -225,19 +229,20 @@ bool PhysicalCreateBF::GiveUpBFCreation(const DataChunk &chunk, OperatorSinkInpu
 			double source_rows = static_cast<double>(this_pipeline->num_source_chunks * STANDARD_VECTOR_SIZE);
 			double selectivity = input_rows / source_rows;
 			double row_length = static_cast<double>(gstate.total_row_size) / input_rows;
-			
-			// TODO: Currently, the number of threads affect the accuracy of progress percent.
-			if (gstate.num_threads > 8) {
-				if (selectivity > 0.35 || (row_length > 40 && selectivity > 0.2)) {
-					is_successful = false;
-					return true;
-				}
-			} else {
-				if (progress_percent < 0.65 && (selectivity > 0.35 || (row_length > 40 && selectivity > 0.2))) {
-					is_successful = false;
-					return true;
-				}
+
+#if USE_SQLSTORM_DP_CONDITION
+			// For SQLStorm
+			if (progress_percent < 0.65 && (selectivity > 0.35 || (row_length > 40 && selectivity > 0.2))) {
+				is_successful = false;
+				return true;
 			}
+#else
+			// For other benchmarks
+			if (selectivity > 0.2) {
+				is_successful = false;
+				return true;
+			}
+#endif
 
 			// 2. Estimate the lower bound of required memory, which is used to materialize this table. If it is very
 			// large, give up creating BF.

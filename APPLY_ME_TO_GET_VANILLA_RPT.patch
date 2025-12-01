@@ -1,0 +1,117 @@
+Subject: [PATCH] Restore vanilla RPT.
+---
+Index: src/execution/operator/join/physical_hash_join.cpp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/execution/operator/join/physical_hash_join.cpp b/src/execution/operator/join/physical_hash_join.cpp
+--- a/src/execution/operator/join/physical_hash_join.cpp	(revision 3ac51d67bb886f8ec80d3a20d2a64b1657ef7403)
++++ b/src/execution/operator/join/physical_hash_join.cpp	(date 1764576897307)
+@@ -1062,9 +1062,9 @@
+ 			return 0;
+ 		}
+ 		idx_t thread_num = count / ((idx_t)STANDARD_VECTOR_SIZE * parallel_scan_chunk_count);
+-		if (gstate.num_threads >= 8) {
+-			thread_num = std::max(thread_num, idx_t(8));
+-		}
++		// if (gstate.num_threads >= 8) {
++		// 	thread_num = std::max(thread_num, idx_t(8));
++		// }
+ 		return thread_num;
+ 	}
+ 
+Index: src/optimizer/predicate_transfer/transfer_graph_manager.cpp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/optimizer/predicate_transfer/transfer_graph_manager.cpp b/src/optimizer/predicate_transfer/transfer_graph_manager.cpp
+--- a/src/optimizer/predicate_transfer/transfer_graph_manager.cpp	(revision 3ac51d67bb886f8ec80d3a20d2a64b1657ef7403)
++++ b/src/optimizer/predicate_transfer/transfer_graph_manager.cpp	(date 1764576841256)
+@@ -61,10 +61,11 @@
+ 	}
+ 
+ 	// 3. Unfiltered Table only receives Bloom filters, they will not generate Bloom filters.
+-	SkipUnfilteredTable(joins);
++	// SkipUnfilteredTable(joins);
+ 
+ 	// 4. Create the transfer graph
+-	CreateTransferPlanUpdated();
++	// CreateTransferPlanUpdated();
++	CreateOriginTransferPlan();
+ 
+ 	return true;
+ }
+Index: src/execution/transfer_bf_linker.cpp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/execution/transfer_bf_linker.cpp b/src/execution/transfer_bf_linker.cpp
+--- a/src/execution/transfer_bf_linker.cpp	(revision 3ac51d67bb886f8ec80d3a20d2a64b1657ef7403)
++++ b/src/execution/transfer_bf_linker.cpp	(date 1764576817949)
+@@ -19,14 +19,14 @@
+ 	state = State::CLEAN_USELESS_OPERATORS;
+ 	VisitOperator(op);
+ 
+-	state = State::UPDATE_MIN_MAX_BINDING;
+-	VisitOperator(op);
+-
+-	state = State::SMOOTH_MARK_JOIN;
+-	VisitOperator(op);
+-
+-	state = State::USE_BF_BELOW_HASH_JOIN;
+-	VisitOperator(op);
++	// state = State::UPDATE_MIN_MAX_BINDING;
++	// VisitOperator(op);
++	//
++	// state = State::SMOOTH_MARK_JOIN;
++	// VisitOperator(op);
++	//
++	// state = State::USE_BF_BELOW_HASH_JOIN;
++	// VisitOperator(op);
+ }
+ 
+ void TransferBFLinker::VisitOperator(LogicalOperator &op) {
+Index: src/execution/operator/persistent/physical_create_bf.cpp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/execution/operator/persistent/physical_create_bf.cpp b/src/execution/operator/persistent/physical_create_bf.cpp
+--- a/src/execution/operator/persistent/physical_create_bf.cpp	(revision 3ac51d67bb886f8ec80d3a20d2a64b1657ef7403)
++++ b/src/execution/operator/persistent/physical_create_bf.cpp	(date 1764576807733)
+@@ -230,19 +230,19 @@
+ 			double selectivity = input_rows / source_rows;
+ 			double row_length = static_cast<double>(gstate.total_row_size) / input_rows;
+ 
+-#if USE_SQLSTORM_DP_CONDITION
+-			// For SQLStorm
+-			if (progress_percent < 0.65 && (selectivity > 0.35 || (row_length > 40 && selectivity > 0.2))) {
+-				is_successful = false;
+-				return true;
+-			}
+-#else
+-			// For other benchmarks
+-			if (selectivity > 0.2) {
+-				is_successful = false;
+-				return true;
+-			}
+-#endif
++// #if USE_SQLSTORM_DP_CONDITION
++// 			// For SQLStorm
++// 			if (progress_percent < 0.65 && (selectivity > 0.35 || (row_length > 40 && selectivity > 0.2))) {
++// 				is_successful = false;
++// 				return true;
++// 			}
++// #else
++// 			// For other benchmarks
++// 			if (selectivity > 0.2) {
++// 				is_successful = false;
++// 				return true;
++// 			}
++// #endif
+ 
+ 			// 2. Estimate the lower bound of required memory, which is used to materialize this table. If it is very
+ 			// large, give up creating BF.

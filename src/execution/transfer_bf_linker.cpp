@@ -24,6 +24,9 @@ void TransferBFLinker::LinkBFOperators(LogicalOperator &op) {
 
 	state = State::SMOOTH_MARK_JOIN;
 	VisitOperator(op);
+
+	state = State::USE_BF_BELOW_HASH_JOIN;
+	VisitOperator(op);
 }
 
 void TransferBFLinker::VisitOperator(LogicalOperator &op) {
@@ -171,6 +174,16 @@ void TransferBFLinker::VisitOperator(LogicalOperator &op) {
 
 		// Step 5: Replace op's child with the head of the new reordered BF chain
 		op.children[0] = std::move(bf_chain);
+		break;
+	}
+	case State::USE_BF_BELOW_HASH_JOIN: {
+		if (op.type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN) {
+			const auto& left_child = op.children[0];
+			if (left_child->type == LogicalOperatorType::LOGICAL_USE_BF) {
+				auto& bf_user = left_child->Cast<LogicalUseBF>();
+				bf_user.below_join = true;
+			}
+		}
 		break;
 	}
 	default:

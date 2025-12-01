@@ -20,7 +20,7 @@ PhysicalOperator &PhysicalPlanGenerator::CreatePlan(LogicalUseBF &op) {
 	D_ASSERT(target_idx != std::numeric_limits<size_t>::max());
 
 	auto &use_bf = Make<PhysicalUseBF>(plan.types, op.filter_plan, std::move(bf_creator->bf_to_create[target_idx]),
-	                                   bf_creator, op.estimated_cardinality);
+	                                   bf_creator, op.estimated_cardinality, op.below_join);
 	use_bf.children.emplace_back(plan);
 	return use_bf;
 }
