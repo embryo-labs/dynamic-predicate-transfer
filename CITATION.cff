@@ -1,11 +1,29 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite it as below."
+message: "If this research artifact contributes to your work, please cite the preferred paper."
+type: software
+title: "RPT+ (DuckDB research implementation)"
+url: "https://github.com/embryo-labs/dynamic-predicate-transfer"
 authors:
-- family-names: "Raasveldt"
-  given-names: "Mark"
-  orcid: "https://orcid.org/0000-0001-5005-6844"
-- family-names: "Muehleisen"
-  given-names: "Hannes"
-  orcid: "https://orcid.org/0000-0001-8552-0029"
-title: "DuckDB"
-url: "https://github.com/duckdb/duckdb"
+  - family-names: "Qiao"
+    given-names: "Yiming"
+  - family-names: "Boncz"
+    given-names: "Peter"
+  - family-names: "Zhang"
+    given-names: "Huanchen"
+preferred-citation:
+  type: article
+  title: "Robust Predicate Transfer with Dynamic Execution"
+  journal: "Proceedings of the VLDB Endowment"
+  volume: 19
+  issue: 6
+  year: 2026
+  doi: "10.14778/3797919.3797934"
+  start: 1278
+  end: 1290
+  authors:
+    - family-names: "Qiao"
+      given-names: "Yiming"
+    - family-names: "Boncz"
+      given-names: "Peter"
+    - family-names: "Zhang"
+      given-names: "Huanchen"
