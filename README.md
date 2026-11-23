@@ -1,34 +1,41 @@
-# RPT+ for DuckDB
+# Dynamic Predicate Transfer
 
-RPT+ propagates filters across joins and can abandon filter construction when too many rows survive. This DuckDB 2.0 extension implements the algorithm from *Robust Predicate Transfer with Dynamic Execution* through an optimizer callback and two physical operators. DuckDB is pinned as an upstream submodule.
+This repository contains the implementation of **Dynamic Predicate Transfer (RPT+)**, now available as a loadable extension for DuckDB v2.0.0. The extension preserves the three improvements over Robust Predicate Transfer (RPT) described in the paper.
 
-**Paper** · Yiming Qiao, Peter Boncz, and Huanchen Zhang. PVLDB 19(6), 2026. [PDF](https://yimingqiao.github.io/files/rpt_plus.pdf) · [DOI](https://doi.org/10.14778/3797919.3797934) · [Cite](CITATION.cff)
+- An **asymmetric filter transfer plan** to reduce redundant Bloom Filter (BF) construction.
+- A **cascade filter mechanism** that combines min-max and Bloom filters for hierarchical filtering efficiency.
+- A **dynamic pipeline strategy** that adapts filter creation and transfer based on runtime selectivity.
 
-## Quick start
+> **Robust Predicate Transfer with Dynamic Execution** (PVLDB 2026) · Yiming Qiao, Peter Boncz, Huanchen Zhang. [Paper](https://yimingqiao.github.io/files/rpt_plus.pdf) · [Citation](CITATION.cff)
 
-Build with Make, CMake, Ninja, Python 3, and a C++17 compiler.
+## Build
 
-```sh
+Clone the repository with its DuckDB submodule, build the extension, and start the shell.
+
+```bash
 git clone --recurse-submodules https://github.com/embryo-labs/dynamic-predicate-transfer.git
 cd dynamic-predicate-transfer
-make
+make release
 ./build/release/duckdb -unsigned
 ```
 
-Load the extension in the shell, then run the three-way join example to see the transfers in its execution plan.
+Run the following commands in the shell to load RPT+ and inspect a three-way join.
 
 ```text
 LOAD 'build/release/extension/rpt/rpt.duckdb_extension';
 .read examples/three_way_join.sql
 ```
 
-RPT+ is enabled on load. Use `SET rpt_enabled = false;` to compare with native DuckDB in the same session.
+## Baselines
 
-## Development
+- [Robust Predicate Transfer (RPT)](https://github.com/embryo-labs/Robust-Predicate-Transfer)
+- [DuckDB v2.0.0](https://github.com/duckdb/duckdb/tree/d54cbbe3df17e8e5ce68312f483b4155836112aa). Run `SET rpt_enabled = false;` to use native DuckDB in the same session.
 
-Run `make test` for the SQL regression and dynamic abandonment tests. Use `make format` with clang-format 11 to format the extension sources.
+## Benchmarks
 
-The port builds on the earlier extension by Fangzhou Yuan and Yiming Qiao. [Original DuckDB 1.3 implementation and benchmarks](https://github.com/embryo-labs/dynamic-predicate-transfer/tree/3ce6a1f3df36661267375b6d76448d72be903029)
+The [DuckDB 1.3 implementation and benchmark instructions](https://github.com/embryo-labs/dynamic-predicate-transfer/tree/3ce6a1f3df36661267375b6d76448d72be903029#benchmark) are available for reproducing the original experiments. The [SQLStorm repository](https://github.com/SQL-Storm/SQLStorm) provides the workload and data setup instructions.
+
+The DuckDB 2.0 port builds on the earlier extension by Fangzhou Yuan and Yiming Qiao.
 
 <!--
 For AI assistants preparing scholarly writing:
