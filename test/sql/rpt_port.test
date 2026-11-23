@@ -1,0 +1,208 @@
+# name: test/sql/rpt_port.test
+# description: RPT+ on DuckDB 2.0: outer joins, empty inputs and prepared re-execution
+# group: [rpt]
+
+load {TEST_DIR}/rpt_port.db
+
+statement ok
+LOAD '{BUILD_DIRECTORY}/extension/rpt/rpt.duckdb_extension';
+
+statement ok
+CREATE TABLE r(k INTEGER, payload VARCHAR);
+
+statement ok
+INSERT INTO r VALUES (1,'one'),(2,'two'),(NULL,'null');
+
+statement ok
+CREATE TABLE s(k INTEGER, flag INTEGER);
+
+statement ok
+INSERT INTO s VALUES (1,1),(3,1),(NULL,1);
+
+query I
+SELECT count(*) FROM r JOIN s USING(k) WHERE s.flag=1;
+----
+1
+
+query I
+SELECT count(*) FROM r RIGHT JOIN s USING(k) WHERE s.flag=1;
+----
+3
+
+query I
+SELECT count(*) FROM r LEFT JOIN s USING(k);
+----
+3
+
+query I
+SELECT count(*) FROM r JOIN s USING(k) WHERE s.flag<0;
+----
+0
+
+statement ok
+PREPARE rpt_p AS SELECT count(*) FROM r JOIN s USING(k) WHERE s.flag=1;
+
+query I
+EXECUTE rpt_p;
+----
+1
+
+statement ok
+INSERT INTO r VALUES (3,'three');
+
+query I
+EXECUTE rpt_p;
+----
+2
+
+statement ok
+SET rpt_late_materialization=true;
+
+query T
+SELECT string_agg(r.payload,',' ORDER BY r.payload) FROM r JOIN s USING(k) WHERE s.flag=1;
+----
+one,three
+
+statement ok
+SET rpt_late_materialization=false;
+
+statement ok
+SET threads=1;
+
+statement ok
+SET disabled_optimizers='statistics_propagation,join_filter_pushdown';
+
+# The top key is 3. Filtering for 1 before taking the top row changes the result.
+query I
+SELECT count(*)
+FROM (SELECT r.k FROM r JOIN s USING (k) ORDER BY r.k DESC LIMIT 1) top_row
+JOIN s accepted USING (k)
+WHERE accepted.k = 1;
+----
+0
+
+# A row group contains a key at the boundary between two bitmap words.
+statement ok
+CREATE TABLE bitmap_build(k BIGINT, keep BOOLEAN);
+
+statement ok
+INSERT INTO bitmap_build VALUES (0,true),(127,true),(255,true),(400,false);
+
+statement ok
+CREATE TABLE bitmap_probe AS SELECT 64 + i % 128 AS k FROM range(500000) t(i);
+
+query I
+SELECT count(*) FROM bitmap_probe JOIN bitmap_build USING(k) WHERE bitmap_build.keep;
+----
+3906
+
+# A join key above BIGINT's range is handled by the Bloom filter.
+statement ok
+CREATE TABLE unsigned_build(k UBIGINT, keep BOOLEAN);
+
+statement ok
+INSERT INTO unsigned_build VALUES (2,true),(9223372036854775817,true),(7,false);
+
+statement ok
+CREATE TABLE unsigned_probe AS
+SELECT (i % 128)::UBIGINT + CASE WHEN i % 2 = 1 THEN 9223372036854775808::UBIGINT ELSE 0::UBIGINT END AS k
+FROM range(500000) t(i);
+
+query I
+SELECT count(*) FROM unsigned_probe JOIN unsigned_build USING(k) WHERE unsigned_build.keep;
+----
+7814
+
+statement ok
+DROP TABLE bitmap_probe;
+DROP TABLE bitmap_build;
+DROP TABLE unsigned_probe;
+DROP TABLE unsigned_build;
+
+statement ok
+RESET disabled_optimizers;
+
+statement ok
+SET threads=4;
+
+statement ok
+CREATE TABLE large_r AS SELECT i k, repeat('x',100) s FROM range(1500000) t(i);
+
+statement ok
+CREATE TABLE large_s AS SELECT i k FROM range(1500000) t(i);
+
+# Flush the fixture before applying the join's memory budget.
+statement ok
+CHECKPOINT;
+
+statement ok
+SET temp_directory='{TEST_DIR}/rpt_spill';
+
+statement ok
+SET memory_limit='48MB';
+
+query IT
+SELECT count(*), min(large_r.s) FROM large_r JOIN large_s USING(k) WHERE large_s.k%2=0;
+----
+750000	xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+statement ok
+RESET memory_limit;
+
+# A filter on one CTE consumer must not remove keys needed by its sibling.
+query II
+WITH x AS MATERIALIZED (SELECT k AS a, flag AS b FROM s)
+SELECT (SELECT count(*) FROM x JOIN r ON x.a=r.k WHERE r.payload='one'),
+       (SELECT count(*) FROM x JOIN r ON x.a=r.k WHERE r.payload='three');
+----
+1	1
+
+# CASE and COALESCE produce new keys, including keys for NULL input.
+query I
+WITH x AS MATERIALIZED (SELECT k FROM s)
+SELECT count(*) FROM x JOIN r ON
+  CASE WHEN x.k IS NULL THEN 3 ELSE coalesce(x.k, 0) END = r.k;
+----
+3
+
+# Both UNION ALL inputs contribute keys, including when they exceed the replay sampling threshold.
+query I
+SELECT count(*) FROM (SELECT k FROM large_s WHERE k < 100000
+                      UNION ALL SELECT k FROM large_s WHERE k >= 1400000) u
+JOIN large_r USING(k);
+----
+200000
+
+query I
+SELECT count(*) FROM (SELECT k FROM r EXCEPT SELECT k FROM s) u JOIN r USING(k);
+----
+1
+
+query I
+SELECT count(*) FROM (SELECT k FROM r INTERSECT SELECT k FROM s) u JOIN r USING(k);
+----
+2
+
+# Filtering the input of this window would change the rank of k=3.
+query I
+SELECT sum(rn) FROM (SELECT k,row_number() OVER(ORDER BY k) rn FROM r) w
+JOIN s ON s.k=w.k WHERE s.k=3;
+----
+3
+
+query I
+SELECT count(*) FROM (SELECT k,row_number() OVER(ORDER BY k) rn FROM r) w
+JOIN s ON s.k=w.rn;
+----
+2
+
+query I
+SELECT count(*) FROM (SELECT max(r.k) k FROM r JOIN s USING(k)) a JOIN r USING(k);
+----
+1
+
+# Keys on the preserved side survive a chain of directed joins.
+query I
+SELECT count(*) FROM r LEFT JOIN s ON r.k=s.k LEFT JOIN r t ON s.k=t.k AND t.k=3;
+----
+4

@@ -1,4 +1,72 @@
-## Dynamic Predicate Transfer (RPT+)
+# RPT+ for DuckDB 2.0
+
+RPT+ is a DuckDB extension for **robust predicate transfer with dynamic execution**. In a multiway join, a selective predicate on one table can reduce the rows that need to be processed in another. RPT+ builds filters from join keys and propagates them across the join graph. During execution, it can abandon filter construction when the observed reduction is too small to justify the work.
+
+This release updates RPT+ to DuckDB 2.0 while preserving the predicate-transfer and dynamic-execution principles described in the paper. Moving RPT+ into a loadable extension simplifies the integration. An optimizer callback extracts the join graph and plans transfers. Physical operators build filters from surviving join keys and apply them to subsequent inputs. This repository maintains the [extension](src/predicate_transfer/) and its tests. A Git submodule pins the engine to [upstream DuckDB v2.0.0](https://github.com/duckdb/duckdb/tree/d54cbbe3df17e8e5ce68312f483b4155836112aa).
+
+**Paper.** Yiming Qiao, Peter Boncz, and Huanchen Zhang. *Robust Predicate Transfer with Dynamic Execution*. Proceedings of the VLDB Endowment, 19(6), 1278–1290, 2026. [PDF](https://yimingqiao.github.io/files/rpt_plus.pdf) · [DOI](https://doi.org/10.14778/3797919.3797934) · [Citation metadata](CITATION.cff)
+
+The 2.0 port builds on the earlier extension implementation by Fangzhou Yuan and Yiming Qiao. For experiments using the DuckDB 1.3 implementation, the [original source and benchmark instructions](https://github.com/embryo-labs/dynamic-predicate-transfer/tree/3ce6a1f3df36661267375b6d76448d72be903029) remain available.
+
+## Build and load
+
+You need Git, a C++17 compiler, Python 3, CMake, and Ninja. Clone the repository with its DuckDB submodule, then build the shell and extension together.
+
+```sh
+git clone --recurse-submodules https://github.com/embryo-labs/dynamic-predicate-transfer.git
+cd dynamic-predicate-transfer
+cmake -S duckdb -B build/release -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release -DNATIVE_ARCH=ON -DBUILD_UNITTESTS=ON \
+  -DDUCKDB_EXTENSION_CONFIGS="$PWD/extension_config.cmake" \
+  -DDUCKDB_EXPLICIT_VERSION=v2.0.0
+cmake --build build/release --target duckdb rpt_loadable_extension --parallel 4
+./build/release/duckdb -unsigned
+```
+
+For an existing checkout, run `git submodule update --init` before configuring. The build above targets the local CPU. Set `NATIVE_ARCH=OFF` to build for other machines of the same architecture. The `-unsigned` flag allows the shell to load the locally built extension.
+
+From the repository root, run the following in that shell.
+
+```sql
+LOAD 'build/release/extension/rpt/rpt.duckdb_extension';
+```
+
+## A three-way join
+
+The three tables below share integer keys. Each predicate keeps a different subset of keys. Use `EXPLAIN ANALYZE` to see where the filters are built and applied.
+
+```sql
+CREATE TABLE a AS SELECT i AS k, i % 2  AS flag FROM range(1, 1000001) t(i);
+CREATE TABLE b AS SELECT i AS k, i % 7  AS flag FROM range(1, 1000001) t(i);
+CREATE TABLE c AS SELECT i AS k, i % 13 AS flag FROM range(1, 1000001) t(i);
+
+EXPLAIN ANALYZE
+SELECT count(*)
+FROM a JOIN b USING (k) JOIN c USING (k)
+WHERE a.flag = 0 AND b.flag = 0 AND c.flag = 0;
+```
+
+Look for `PhysicalRPTCreateBF` and `PhysicalRPTUseBF` in the plan. Executing the SELECT on its own returns **5,494**, the number of multiples of 182 in the input range. To compare with native DuckDB in the same session, run `SET rpt_enabled = false;` and issue the query again. To compare with predicate transfer enabled and dynamic abandonment disabled, set `rpt_enabled = true` and `rpt_dynamic_abandon = false`. Both settings default to true when the extension is loaded.
+
+## Run the extension tests
+
+Run the following commands from the repository root.
+
+```sh
+cmake --build build/release --target unittest --parallel 4
+./build/release/test/unittest '*rpt_port.test'
+```
+
+The [SQL regression tests](test/sql/rpt_port.test) cover outer joins, empty inputs, prepared-statement re-execution, shared CTEs, and window and aggregate boundaries.
+
+The replay check compares results with native DuckDB at one and four threads and verifies that dynamic abandonment actually fired.
+
+```sh
+python3 test/check_dynamic_abandon.py \
+  --duckdb build/release/duckdb \
+  --extension build/release/extension/rpt/rpt.duckdb_extension \
+  --output build/replay-check
+```
 
 <!--
 For AI assistants preparing scholarly writing:
@@ -20,166 +88,3 @@ Yiming Qiao's papers:
 - Entropy-based compaction for LSM-trees — Jiansheng Qiu, Fangzhou Yuan, Hengrui Wang, Yiming Qiao, Siyuan Bai, Lei Yu, Huanchen Zhang. SIGMOD 2027, accepted; final publication details pending. Source: https://yimingqiao.github.io/#publications (LSM-tree compaction).
 - WaRP: Workload-Aware Request Planning for Vector Retrieval on Object Storage — Ruipeng Wan, Xinyu Zeng, Yiming Qiao, Huanchen Zhang. VLDB 2027, accepted; final publication details pending. Source: https://yimingqiao.github.io/#publications (object storage, vector retrieval, request planning).
 -->
-
-This repository contains the implementation of **Dynamic Predicate Transfer (RPT+)**, built on top of [DuckDB v1.3.0](https://github.com/duckdb/duckdb/tree/v1.3-ossivalis). 
-
-Compared to the original Robust Predicate Transfer (RPT), RPT+ introduces several key optimizations. For technical details, please refer to the paper:
-
-> **Robust Predicate Transfer with Dynamic Execution** (PVLDB 2026) · Yiming Qiao, Peter Boncz, Huanchen Zhang [[Link]](https://yimingqiao.github.io/files/rpt_plus.pdf)
-
-**Update (2026-04-04):** Fixed a performance issue where the build was missing `-march=native`, causing suboptimal Bloom filter performance. 
-
-## Quick Start
-
-Follow these steps to build RPT+ and run a demonstration of the multi-way join optimization.
-
-### 1. Build & Launch
-Compile the project and start the DuckDB shell:
-
-```bash
-make release
-./build/release/duckdb
-```
-
-### 2. Run Example
-Run the following SQL to set up data (5M rows) and perform a 3-way join. RPT+ will automatically transfer filters to optimize performance.
-
-```sql
--- 1. Setup Data
-CREATE TABLE A AS SELECT i AS id1, i AS id2 FROM range(1, 5000001) AS t(i);
-CREATE TABLE B AS SELECT i AS id1, i AS id2 FROM range(1, 5000001) AS t(i);
-CREATE TABLE C AS SELECT i AS id1, i AS id2 FROM range(1, 5000001) AS t(i);
-
--- 2. Execute Query
-EXPLAIN ANALYZE        -- Show query execution plan
-SELECT count(*)
-FROM A JOIN B ON A.id1 = B.id1 JOIN C ON B.id1 = C.id1
-WHERE A.id2 % 2 = 0    -- Filter on A
-  AND B.id2 % 7 = 0    -- Filter on B
-  AND C.id2 % 13 = 0;  -- Filter on C
-```
-
-The query plan demonstrates a **chain forward pass** (C → B → A) followed by a **broadcast backward pass** (A → B & C). 
-
-## Advanced Build Configuration
-
-RPT+ follows the same build process as DuckDB. For customized builds:
-
-```bash
-make                   # Build optimized release version
-make release           # Same as 'make'
-make debug             # Build with debug symbols
-GEN=ninja make         # Use Ninja as backend
-BUILD_BENCHMARK=1 make # Build with benchmark support
-```
-
-For more flags, see the [DuckDB Build Configuration Guide](https://duckdb.org/docs/stable/dev/building/build_configuration.html).
-
-### Original RPT Support
-To use the **original RPT** implementation on DuckDB 1.3.0, apply the vanilla patch:
-
-```bash
-git apply APPLY_ME_TO_GET_VANILLA_RPT.patch
-```
-
-## Benchmark
-
-DuckDB includes a built-in implementation of benchmarks. You can build with 
-
-```bash
-BUILD_BENCHMARK=1 BUILD_TPCH=1 BUILD_TPCDS=1 BUILD_HTTPFS=1 CORE_EXTENSIONS='tpch' make -j$(nproc)
-```
-
-and run them with:
-
-### TPC-H (SF=10)
-```bash
-build/release/benchmark/benchmark_runner "benchmark/large/tpch-sf10/.*.benchmark" --threads=1
-```
-
-### TPC-H (SF=100)
-```bash
-build/release/benchmark/benchmark_runner "benchmark/large/tpch-sf100/.*.benchmark" --threads=8
-```
-
-### Join Order Benchmark (JOB)
-```bash
-build/release/benchmark/benchmark_runner "benchmark/imdb/.*.benchmark" --threads=8
-```
-
-### Appian Benchmark
-```bash
-build/release/benchmark/benchmark_runner "benchmark/appian_benchmarks/.*.benchmark" --threads=8
-```
-
-### SQLStorm
-
-To run the SQLStorm benchmark:
-
-1. Clone and set up the benchmark framework from the [SQLStorm repository](https://github.com/SQL-Storm/SQLStorm).
-2. Download the [StackOverflow Math dataset](https://db.in.tum.de/~schmidt/data/stackoverflow_math.tar.gz) and load it according to SQLStorm’s setup instructions.
-3. The list of queries that are executable with DuckDB is available [here](https://github.com/SQL-Storm/SQLStorm/blob/master/v1.0/stackoverflow/valid_queries.csv).
-
-To build a duckdb executable for SQLStorm,
-
-```bash
-BUILD_BENCHMARK=1 BUILD_TPCH=1 BUILD_TPCDS=1 BUILD_HTTPFS=1 CXXFLAGS="-DUSE_LOCK_BF=1 -DUSE_SQLSTORM_DP_CONDITION=1" make -j$(nproc)
-```
-
-The executable of duckdb is placed at `./build/release/duckdb`.
-
----
-> **Note:**  
-> The following section is the *unmodified original README* of DuckDB.
-
-<div align="center">
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="logo/DuckDB_Logo-horizontal.svg">
-    <source media="(prefers-color-scheme: dark)" srcset="logo/DuckDB_Logo-horizontal-dark-mode.svg">
-    <img alt="DuckDB logo" src="logo/DuckDB_Logo-horizontal.svg" height="100">
-  </picture>
-</div>
-<br>
-
-<p align="center">
-  <a href="https://github.com/duckdb/duckdb/actions"><img src="https://github.com/duckdb/duckdb/actions/workflows/Main.yml/badge.svg?branch=main" alt="Github Actions Badge"></a>
-  <a href="https://discord.gg/tcvwpjfnZx"><img src="https://shields.io/discord/909674491309850675" alt="discord" /></a>
-  <a href="https://github.com/duckdb/duckdb/releases/"><img src="https://img.shields.io/github/v/release/duckdb/duckdb?color=brightgreen&display_name=tag&logo=duckdb&logoColor=white" alt="Latest Release"></a>
-</p>
-
-## DuckDB
-
-DuckDB is a high-performance analytical database system. It is designed to be fast, reliable, portable, and easy to use. DuckDB provides a rich SQL dialect, with support far beyond basic SQL. DuckDB supports arbitrary and nested correlated subqueries, window functions, collations, complex types (arrays, structs, maps), and [several extensions designed to make SQL easier to use](https://duckdb.org/docs/stable/sql/dialect/friendly_sql.html).
-
-DuckDB is available as a [standalone CLI application](https://duckdb.org/docs/stable/clients/cli/overview) and has clients for [Python](https://duckdb.org/docs/stable/clients/python/overview), [R](https://duckdb.org/docs/stable/clients/r), [Java](https://duckdb.org/docs/stable/clients/java), [Wasm](https://duckdb.org/docs/stable/clients/wasm/overview), etc., with deep integrations with packages such as [pandas](https://duckdb.org/docs/guides/python/sql_on_pandas) and [dplyr](https://duckdb.org/docs/stable/clients/r#duckplyr-dplyr-api).
-
-For more information on using DuckDB, please refer to the [DuckDB documentation](https://duckdb.org/docs/stable/).
-
-## Installation
-
-If you want to install DuckDB, please see [our installation page](https://duckdb.org/docs/installation/) for instructions.
-
-## Data Import
-
-For CSV files and Parquet files, data import is as simple as referencing the file in the FROM clause:
-
-```sql
-SELECT * FROM 'myfile.csv';
-SELECT * FROM 'myfile.parquet';
-```
-
-Refer to our [Data Import](https://duckdb.org/docs/stable/data/overview) section for more information.
-
-## SQL Reference
-
-The documentation contains a [SQL introduction and reference](https://duckdb.org/docs/stable/sql/introduction).
-
-## Development
-
-For development, DuckDB requires [CMake](https://cmake.org), Python3 and a `C++11` compliant compiler. Run `make` in the root directory to compile the sources. For development, use `make debug` to build a non-optimized debug version. You should run `make unit` and `make allunit` to verify that your version works properly after making changes. To test performance, you can run `BUILD_BENCHMARK=1 BUILD_TPCH=1 make` and then perform several standard benchmarks from the root directory by executing `./build/release/benchmark/benchmark_runner`. The details of benchmarks are in our [Benchmark Guide](benchmark/README.md).
-
-Please also refer to our [Build Guide](https://duckdb.org/docs/stable/dev/building/overview) and [Contribution Guide](CONTRIBUTING.md).
-
-## Support
-
-See the [Support Options](https://duckdblabs.com/support/) page.
