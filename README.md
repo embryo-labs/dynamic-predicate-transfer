@@ -1,5 +1,7 @@
 # Dynamic Predicate Transfer
 
+We rebuilt RPT+ as a loadable extension for DuckDB 2.0. The extension keeps the implementation simpler by using DuckDB’s optimizer and execution interfaces while preserving the algorithmic principles described in the paper.
+
 This repository contains the implementation of **Dynamic Predicate Transfer (RPT+)**, now available as a loadable extension for DuckDB v2.0.0. The extension preserves the three improvements over Robust Predicate Transfer (RPT) described in the paper.
 
 - An **asymmetric filter transfer plan** to reduce redundant Bloom Filter (BF) construction.
