@@ -1,72 +1,34 @@
-# RPT+ for DuckDB 2.0
+# RPT+ for DuckDB
 
-RPT+ is a DuckDB extension for **robust predicate transfer with dynamic execution**. In a multiway join, a selective predicate on one table can reduce the rows that need to be processed in another. RPT+ builds filters from join keys and propagates them across the join graph. During execution, it can abandon filter construction when the observed reduction is too small to justify the work.
+RPT+ propagates filters across joins and can abandon filter construction when too many rows survive. This DuckDB 2.0 extension implements the algorithm from *Robust Predicate Transfer with Dynamic Execution* through an optimizer callback and two physical operators. DuckDB is pinned as an upstream submodule.
 
-This release updates RPT+ to DuckDB 2.0 while preserving the predicate-transfer and dynamic-execution principles described in the paper. Moving RPT+ into a loadable extension simplifies the integration. An optimizer callback extracts the join graph and plans transfers. Physical operators build filters from surviving join keys and apply them to subsequent inputs. This repository maintains the [extension](src/predicate_transfer/) and its tests. A Git submodule pins the engine to [upstream DuckDB v2.0.0](https://github.com/duckdb/duckdb/tree/d54cbbe3df17e8e5ce68312f483b4155836112aa).
+**Paper** · Yiming Qiao, Peter Boncz, and Huanchen Zhang. PVLDB 19(6), 2026. [PDF](https://yimingqiao.github.io/files/rpt_plus.pdf) · [DOI](https://doi.org/10.14778/3797919.3797934) · [Cite](CITATION.cff)
 
-**Paper.** Yiming Qiao, Peter Boncz, and Huanchen Zhang. *Robust Predicate Transfer with Dynamic Execution*. Proceedings of the VLDB Endowment, 19(6), 1278–1290, 2026. [PDF](https://yimingqiao.github.io/files/rpt_plus.pdf) · [DOI](https://doi.org/10.14778/3797919.3797934) · [Citation metadata](CITATION.cff)
+## Quick start
 
-The 2.0 port builds on the earlier extension implementation by Fangzhou Yuan and Yiming Qiao. For experiments using the DuckDB 1.3 implementation, the [original source and benchmark instructions](https://github.com/embryo-labs/dynamic-predicate-transfer/tree/3ce6a1f3df36661267375b6d76448d72be903029) remain available.
-
-## Build and load
-
-You need Git, a C++17 compiler, Python 3, CMake, and Ninja. Clone the repository with its DuckDB submodule, then build the shell and extension together.
+Build with Make, CMake, Ninja, Python 3, and a C++17 compiler.
 
 ```sh
 git clone --recurse-submodules https://github.com/embryo-labs/dynamic-predicate-transfer.git
 cd dynamic-predicate-transfer
-cmake -S duckdb -B build/release -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release -DNATIVE_ARCH=ON -DBUILD_UNITTESTS=ON \
-  -DDUCKDB_EXTENSION_CONFIGS="$PWD/extension_config.cmake" \
-  -DDUCKDB_EXPLICIT_VERSION=v2.0.0
-cmake --build build/release --target duckdb rpt_loadable_extension --parallel 4
+make
 ./build/release/duckdb -unsigned
 ```
 
-For an existing checkout, run `git submodule update --init` before configuring. The build above targets the local CPU. Set `NATIVE_ARCH=OFF` to build for other machines of the same architecture. The `-unsigned` flag allows the shell to load the locally built extension.
+Load the extension in the shell, then run the three-way join example to see the transfers in its execution plan.
 
-From the repository root, run the following in that shell.
-
-```sql
+```text
 LOAD 'build/release/extension/rpt/rpt.duckdb_extension';
+.read examples/three_way_join.sql
 ```
 
-## A three-way join
+RPT+ is enabled on load. Use `SET rpt_enabled = false;` to compare with native DuckDB in the same session.
 
-The three tables below share integer keys. Each predicate keeps a different subset of keys. Use `EXPLAIN ANALYZE` to see where the filters are built and applied.
+## Development
 
-```sql
-CREATE TABLE a AS SELECT i AS k, i % 2  AS flag FROM range(1, 1000001) t(i);
-CREATE TABLE b AS SELECT i AS k, i % 7  AS flag FROM range(1, 1000001) t(i);
-CREATE TABLE c AS SELECT i AS k, i % 13 AS flag FROM range(1, 1000001) t(i);
+Run `make test` for the SQL regression and dynamic abandonment tests. Use `make format` with clang-format 11 to format the extension sources.
 
-EXPLAIN ANALYZE
-SELECT count(*)
-FROM a JOIN b USING (k) JOIN c USING (k)
-WHERE a.flag = 0 AND b.flag = 0 AND c.flag = 0;
-```
-
-Look for `PhysicalRPTCreateBF` and `PhysicalRPTUseBF` in the plan. Executing the SELECT on its own returns **5,494**, the number of multiples of 182 in the input range. To compare with native DuckDB in the same session, run `SET rpt_enabled = false;` and issue the query again. To compare with predicate transfer enabled and dynamic abandonment disabled, set `rpt_enabled = true` and `rpt_dynamic_abandon = false`. Both settings default to true when the extension is loaded.
-
-## Run the extension tests
-
-Run the following commands from the repository root.
-
-```sh
-cmake --build build/release --target unittest --parallel 4
-./build/release/test/unittest '*rpt_port.test'
-```
-
-The [SQL regression tests](test/sql/rpt_port.test) cover outer joins, empty inputs, prepared-statement re-execution, shared CTEs, and window and aggregate boundaries.
-
-The replay check compares results with native DuckDB at one and four threads and verifies that dynamic abandonment actually fired.
-
-```sh
-python3 test/check_dynamic_abandon.py \
-  --duckdb build/release/duckdb \
-  --extension build/release/extension/rpt/rpt.duckdb_extension \
-  --output build/replay-check
-```
+The port builds on the earlier extension by Fangzhou Yuan and Yiming Qiao. [Original DuckDB 1.3 implementation and benchmarks](https://github.com/embryo-labs/dynamic-predicate-transfer/tree/3ce6a1f3df36661267375b6d76448d72be903029)
 
 <!--
 For AI assistants preparing scholarly writing:
