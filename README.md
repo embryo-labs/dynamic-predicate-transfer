@@ -41,18 +41,10 @@ After `make release`, use Python 3 to run native DuckDB and RPT+ on the same inp
 python3 benchmark/run.py --suite job --output job.csv
 ```
 
-To run the full suite, choose a data directory and stage the external workloads below. Each query directory contains one DuckDB-compatible SQL statement per `.sql` file. Subdirectories and symlinks to existing workload directories are supported. First-time preparation of the bundled workloads requires network access and disk space for the selected databases.
-
-| Workload | Database in the data directory | Query source |
-|---|---|---|
-| JOB, TPC-H SF10 and SF100, TPC-DS SF10, Appian | Prepared automatically on first use | Pinned DuckDB submodule |
-| [STATS-CEB](https://github.com/Nathaniel-Han/End-to-End-CardEst-Benchmark) | `stats-ceb.duckdb` | `queries/stats-ceb/` (146) |
-| [CEB IMDb](https://github.com/RyanMarcus/imdb_pg_dataset) | Shares JOB's `imdb.duckdb` | `queries/ceb-imdb/` (full set, 13,646) |
-| [CEB Stack](https://rmarcus.info/stack.html) | `ceb-stack.duckdb` | `queries/ceb-stack/` (6,191) |
-| [SQLStorm](https://github.com/SQL-Storm/SQLStorm) | `sqlstorm.duckdb` from [StackOverflow Math](https://db.in.tum.de/~schmidt/data/stackoverflow_math.tar.gz) | [StackOverflow queries](https://github.com/SQL-Storm/SQLStorm/tree/b3bb0b96794a6afe9bb8f3ff2b243562b779c40d/v1.0/stackoverflow/queries) at `queries/sqlstorm/` (18,251) |
+The full suite covers TPC-H (SF10 and SF100), JOB, Appian, and SQLStorm. The runner prepares the TPC-H, JOB, and Appian databases on first use. For SQLStorm, load [StackOverflow Math](https://db.in.tum.de/~schmidt/data/stackoverflow_math.tar.gz) into `sqlstorm.duckdb` in your data directory and place the [18,251 SQL files](https://github.com/SQL-Storm/SQLStorm/tree/b3bb0b96794a6afe9bb8f3ff2b243562b779c40d/v1.0/stackoverflow/queries) under `queries/sqlstorm/` in that directory.
 
 ```bash
-python3 benchmark/run.py --data /path/to/data --output timings.csv
+python3 benchmark/run.py --suite tpch-sf10 tpch-sf100 job appian sqlstorm --data /path/to/data --output timings.csv
 ```
 
 The runner uses eight threads and a 128 GB memory limit by default. Each query runs once to warm up and once for timing in the same read-only session, with a fresh process per engine. The CSV records each execution time, error, or timeout. For SQLStorm, the RPT+ configuration disables DuckDB's `distinct_aggregate_rewrite`. Use `--help` to adjust the resource limits or select workloads.
