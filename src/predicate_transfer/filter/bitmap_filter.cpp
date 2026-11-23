@@ -40,7 +40,10 @@ void BitmapFilter::BitmapFilterInsert(int num, const data_ptr_t BF_RESTRICT keys
 		auto &word = bf[bit / 64];
 		if (parallel_build) {
 			auto &atomic_word = *reinterpret_cast<std::atomic<uint64_t> *>(&word);
-			atomic_word.fetch_or(mask, std::memory_order_relaxed);
+			// Bits only transition from zero to one during construction.
+			if ((atomic_word.load(std::memory_order_relaxed) & mask) == 0) {
+				atomic_word.fetch_or(mask, std::memory_order_relaxed);
+			}
 		} else {
 			word |= mask;
 		}
