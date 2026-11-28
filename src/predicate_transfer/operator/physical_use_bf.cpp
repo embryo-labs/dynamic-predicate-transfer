@@ -99,6 +99,10 @@ OperatorResultType PhysicalUseBF::ExecuteInternal(ExecutionContext &context, Dat
 		chunk.Reference(input);
 		return OperatorResultType::NEED_MORE_INPUT;
 	}
+	// All future chunks would also fail a probe against a finalized, empty build.
+	if (!state.initialized && related_creator->HasEmptyBuild()) {
+		return OperatorResultType::FINISHED;
+	}
 	// 1. Lookup the RPTBloomFilter
 	size_t result_count=0;
 	filter_to_use->Lookup(input, filter_plan.bound_cols, state.sel_vector, result_count);

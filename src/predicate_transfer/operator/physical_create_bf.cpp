@@ -601,6 +601,11 @@ SinkFinalizeType PhysicalCreateBF::Finalize(Pipeline &pipeline, Event &event, Cl
 	return SinkFinalizeType::READY;
 }
 
+bool PhysicalCreateBF::HasEmptyBuild() const {
+	auto &sink = sink_state->Cast<CreateBFGlobalSinkState>();
+	return !sink.abandoned.load() && sink.data_collection->Count() == 0;
+}
+
 unique_ptr<GlobalSinkState> PhysicalCreateBF::GetGlobalSinkState(ClientContext &context) const {
 	return make_uniq<CreateBFGlobalSinkState>(context, *this);
 }
