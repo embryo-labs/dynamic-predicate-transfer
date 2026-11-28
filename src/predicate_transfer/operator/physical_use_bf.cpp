@@ -1,6 +1,7 @@
 #include "predicate_transfer/operator/physical_use_bf.hpp"
 
 #include "duckdb/parallel/meta_pipeline.hpp"
+#include "duckdb/parallel/pipeline.hpp"
 #include "duckdb/parallel/thread_context.hpp"
 
 namespace duckdb {
@@ -70,9 +71,28 @@ void PhysicalUseBF::BuildPipelines(Pipeline &current, MetaPipeline &meta_pipelin
 	children[0].get().BuildPipelines(current, meta_pipeline);
 }
 
+static bool DownstreamJoinHasNoOutput(Pipeline &pipeline, const PhysicalUseBF &filter) {
+	bool downstream = false;
+	for (auto &op_ref : pipeline.GetOperators()) {
+		auto &op = op_ref.get();
+		if (&op == &filter) {
+			downstream = true;
+		} else if (downstream && &op != pipeline.GetSink().get() && op.type == PhysicalOperatorType::HASH_JOIN &&
+		           op.sink_state && op.sink_state->state == SinkFinalizeType::NO_OUTPUT_POSSIBLE) {
+			return true;
+		}
+	}
+	return false;
+}
+
 OperatorResultType PhysicalUseBF::ExecuteInternal(ExecutionContext &context, DataChunk &input, DataChunk &chunk,
                                                   GlobalOperatorState &gstate, OperatorState &state_p) const {
 	auto &state = state_p.Cast<UseBFState>();
+
+	// Honor a finalized downstream join even when filtering would prevent any tuples from reaching it.
+	if (!state.initialized && context.pipeline && DownstreamJoinHasNoOutput(*context.pipeline, *this)) {
+		return OperatorResultType::FINISHED;
+	}
 
 	// This operator has no RPTBloomFilter to use
 	if (use_table_filter_bf || !state.use_bf) {
